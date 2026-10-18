@@ -1,0 +1,122 @@
+name: Build and release
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 20
+    outputs:
+      version: ${{ steps.plan.outputs.version }}
+      publish: ${{ steps.plan.outputs.publish }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Determine version and release eligibility
+        id: plan
+        shell: pwsh
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          $previous = & ./scripts/get-version.ps1
+          if ($env:EVENT_NAME -eq 'push') {
+            $previous = ''
+            $isRootCommit = (@((& git rev-list --parents -n 1 HEAD) -split ' ').Count -eq 1)
+            if (-not $isRootCommit -and $env:BEFORE_SHA -and $env:BEFORE_SHA -notmatch '^0+$') {
+              $old = & git show "$($env:BEFORE_SHA):VERSION" 2>$null
+              if ($LASTEXITCODE -eq 0) { $previous = ($old -join '').Trim() }
+            }
+          }
+          $plan = & ./scripts/release-plan.ps1 -PreviousVersion $previous -Manual:($env:EVENT_NAME -eq 'workflow_dispatch')
+          "version=$($plan.Version)" >> $env:GITHUB_OUTPUT
+          "publish=$($plan.Publish.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+      - name: Configure CMake
+        shell: pwsh
+        run: cmake --preset windows
+      - name: Build and test Debug
+        shell: pwsh
+        run: |
+          cmake --build --preset debug --parallel
+          if ($LASTEXITCODE -ne 0) { throw 'Debug build failed.' }
+          ctest --preset debug
+          if ($LASTEXITCODE -ne 0) { throw 'Debug regression checks failed.' }
+      - name: Build, test and package Release
+        shell: pwsh
+        run: ./scripts/package.ps1
+      - name: Upload verified binaries
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: WinPPlus-windows-x64
+          path: |
+            dist/WinPPlus.exe
+            dist/WinPPlus-v*-windows-x64.zip
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload regression reports
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: regression-reports
+          path: logs/self-test-*.txt
+          if-no-files-found: ignore
+
+  release:
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && needs.build.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    concurrency:
+      group: release-${{ needs.build.outputs.version }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: WinPPlus-windows-x64
+          path: dist
+      - name: Publish versioned GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          APP_VERSION: ${{ needs.build.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="v$APP_VERSION"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "Release $tag already exists; leaving published files unchanged."
+            exit 0
+          fi
+          if existing_commit=$(gh api "repos/$GH_REPO/commits/$tag" --jq .sha 2>/dev/null); then
+            if [[ "$existing_commit" != "$GITHUB_SHA" ]]; then
+              echo "Tag $tag already points to another commit; refusing to publish mismatched binaries."
+              exit 1
+            fi
+          fi
+          cat > release-notes.md <<'NOTES'
+          Bring the native Win+P menu to your active display, or use a synchronized custom menu on every active display.
+
+          让原生 Win+P 菜单跟随活动屏幕，或在每个活动屏幕上使用同步的自定义投屏菜单。
+
+          Download **WinPPlus.exe** and run it, or extract the portable ZIP and open **WinPPlus/WinPPlus.exe**. The ZIP contains one top-level **WinPPlus** folder. No installer or separate application runtime is required.
+
+          下载 **WinPPlus.exe** 直接运行，也可解压便携 ZIP，打开 **WinPPlus/WinPPlus.exe**。压缩包最外层为一个 **WinPPlus** 文件夹。无需安装器或额外应用运行时。
+
+          Includes a Windows x64 executable, portable archive and SHA-256 checksums. Debug and Release regression checks passed before publication.
+
+          包含 Windows x64 程序、便携压缩包和 SHA-256 校验文件；发布前已通过 Debug 和 Release 回归检查。
+          NOTES
+          gh release create "$tag" dist/WinPPlus.exe dist/WinPPlus-v*-windows-x64.zip dist/SHA256SUMS.txt \
+            --target "$GITHUB_SHA" --title "WinPPlus $tag" --notes-file release-notes.md --latest

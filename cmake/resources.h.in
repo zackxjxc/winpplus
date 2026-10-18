@@ -1,0 +1,3 @@
+#pragma once
+#define WINPPLUS_ICON_DARK "@CMAKE_CURRENT_SOURCE_DIR@/assets/app.ico"
+#define WINPPLUS_ICON_LIGHT "@CMAKE_CURRENT_SOURCE_DIR@/assets/app-light.ico"

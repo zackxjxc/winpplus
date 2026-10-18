@@ -1,0 +1,36 @@
+{
+    "version": 6,
+    "cmakeMinimumRequired": { "major": 3, "minor": 25, "patch": 0 },
+    "configurePresets": [
+        {
+            "name": "windows",
+            "displayName": "Windows x64 (Visual Studio)",
+            "binaryDir": "${sourceDir}/out/build",
+            "architecture": "x64",
+            "cacheVariables": {
+                "CMAKE_SYSTEM_VERSION": "10.0.26100.0",
+                "BUILD_TESTING": "ON"
+            }
+        }
+    ],
+    "buildPresets": [
+        { "name": "debug", "configurePreset": "windows", "configuration": "Debug" },
+        { "name": "release", "configurePreset": "windows", "configuration": "Release" }
+    ],
+    "testPresets": [
+        {
+            "name": "debug",
+            "configurePreset": "windows",
+            "configuration": "Debug",
+            "output": { "outputOnFailure": true },
+            "execution": { "noTestsAction": "error" }
+        },
+        {
+            "name": "release",
+            "configurePreset": "windows",
+            "configuration": "Release",
+            "output": { "outputOnFailure": true },
+            "execution": { "noTestsAction": "error" }
+        }
+    ]
+}

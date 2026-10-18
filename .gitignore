@@ -1,0 +1,9 @@
+.vs/
+bin/
+obj/
+out/
+CMakeUserPresets.json
+logs/
+dist/
+*.user
+*.suo
