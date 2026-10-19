@@ -54,8 +54,21 @@ int Application::RunSelfTests() {
     native.Mode(false, true);
     native.Feed(VK_LWIN, true);
     const auto routed = native.Feed('P', true);
-    check(!routed.consume && routed.action == KeyAction::NativeRoute,
+    check(!routed.consume && routed.action == KeyAction::NativeRoute && routed.beginNativeRoute,
           "native mode routes while forwarding Win+P");
+    native.Feed('P', false);
+    const auto nativeCycle = native.Feed('P', true);
+    check(!nativeCycle.consume && nativeCycle.action == KeyAction::NativeRoute && !nativeCycle.beginNativeRoute,
+          "native repeated P preserves the original screen after Shell takes focus");
+    native.Feed('P', false);
+    native.Feed(VK_LWIN, false);
+    native.Feed(VK_RWIN, true);
+    check(native.Feed('P', true).beginNativeRoute,
+          "new native Win chord captures a new target screen");
+    native.Feed('P', false);
+    native.CancelNativeGesture();
+    check(native.Feed('P', true).beginNativeRoute,
+          "cancelled native chord does not reuse a stale target screen");
     const auto display = QueryCurrentDisplayState();
     report << "DISPLAY mode=" << display.mode << " paths=" << display.activePathCount << "\n";
     test.Feed('P', false);
@@ -88,6 +101,22 @@ int Application::RunSelfTests() {
     key(VK_LWIN, false);
     pump();
     check(menuWindow && IsWindowVisible(menuWindow), "live callback first release keeps visible menu");
+    RECT menuClient{}, menuFrame{};
+    GetClientRect(menuWindow, &menuClient);
+    GetWindowRect(menuWindow, &menuFrame);
+    check(menuClient.right == menuFrame.right - menuFrame.left && menuClient.bottom == menuFrame.bottom - menuFrame.top,
+          "borderless menu preserves the full content client area");
+    check(SendMessageW(menuWindow, WM_NCHITTEST, 0, 0) == HTCLIENT,
+          "borderless menu does not expose resize or drag borders");
+    HWND shadow = GetWindow(menuWindow, GW_OWNER);
+    const LONG_PTR shadowStyles = shadow ? GetWindowLongPtrW(shadow, GWL_EXSTYLE) : 0;
+    check(shadow && IsWindowVisible(shadow) &&
+              (shadowStyles & (WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE)) ==
+                  (WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE),
+          "popup shadow is visible without accepting mouse input or activation");
+    check((GetWindowLongPtrW(menuWindow, GWL_STYLE) & WS_THICKFRAME) == 0 &&
+              (GetWindowLongPtrW(menuWindow, GWL_EXSTYLE) & WS_EX_LAYERED) != 0,
+          "rounded popup uses pixel alpha without a rectangular system frame");
     check(display.mode < 0 || selected == display.mode, "menu initialization matches actual topology");
     std::vector<HMONITOR> monitors;
     EnumDisplayMonitors(
@@ -135,6 +164,7 @@ int Application::RunSelfTests() {
     key(VK_LWIN, false);
     pump();
     check(!menuWindow, "cycled release confirms changed selection (dry run)");
+    check(!IsWindow(shadow), "closing the popup also destroys its shadow");
     key(VK_LWIN, true);
     key('P', true);
     key('P', false);
@@ -150,6 +180,9 @@ int Application::RunSelfTests() {
     ShowSettings();
     pump();
     check(settingsWindow && IsWindowVisible(settingsWindow), "settings opens");
+    check(IsShellSurface(GetShellWindow() ? GetShellWindow() : GetDesktopWindow()),
+          "desktop foreground uses the pointer screen instead of its spanning window bounds");
+    check(!IsShellSurface(settingsWindow), "ordinary application windows keep foreground screen priority");
     check(!GetDlgItem(settingsWindow, 105), "settings has no menu preview button");
     wchar_t caption[256]{};
     GetWindowTextW(settingsWindow, caption, ARRAYSIZE(caption));
@@ -215,8 +248,72 @@ int Application::RunSelfTests() {
           "mouse click confirms its own item independently of keyboard selection");
     check(displaySwitch.Start(-1) == SwitchStart::Failed && displaySwitch.Start(4) == SwitchStart::Failed &&
               !displaySwitch.Pending(),
-          "invalid display modes cannot launch a process");
-    check(displaySwitch.Poll(display) == SwitchUpdate::None, "idle display switch has no pending result");
+          "invalid display modes cannot queue a configuration change");
+    auto switchState = display;
+    check(displaySwitch.Poll(switchState) == SwitchUpdate::None, "idle display switch has no pending result");
+
+    // A blocked graphics API must neither block the owner nor allow overlapping
+    // requests, including after reporting a timeout or destroying the owner.
+    static HANDLE applyEntered{}, applyRelease{}, applyExited{};
+    applyEntered = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    applyRelease = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    applyExited = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    if (applyEntered && applyRelease && applyExited) {
+        auto blockedApply = +[](UINT32, DISPLAYCONFIG_PATH_INFO*, UINT32, DISPLAYCONFIG_MODE_INFO*, UINT32) -> LONG {
+            const HANDLE entered = applyEntered, release = applyRelease, exited = applyExited;
+            SetEvent(entered);
+            WaitForSingleObject(release, 2000);
+            SetEvent(exited);
+            return ERROR_SUCCESS;
+        };
+        auto fakeQuery = +[]() { DisplayState value; value.mode = 0; return value; };
+        {
+            DisplaySwitch blocked(blockedApply, fakeQuery, 50);
+            const auto before = GetTickCount64();
+            check(blocked.Start(0) == SwitchStart::Started && GetTickCount64() - before < 500,
+                  "display request returns while graphics API is blocked");
+            check(WaitForSingleObject(applyEntered, 1000) == WAIT_OBJECT_0,
+                  "display worker entered the graphics API");
+            Sleep(70);
+            check(blocked.Poll(switchState) == SwitchUpdate::Unconfirmed && blocked.LastError() == WAIT_TIMEOUT,
+                  "blocked graphics API reports timeout without a UI wait");
+            check(blocked.Start(1) == SwitchStart::Busy && blocked.Poll(switchState) == SwitchUpdate::None,
+                  "timed out worker stays busy and reports timeout only once");
+            SetEvent(applyRelease);
+            for (int attempt = 0; blocked.Pending() && attempt < 100; ++attempt) {
+                blocked.Poll(switchState);
+                Sleep(5);
+            }
+            check(!blocked.Pending(), "finished timed out worker releases its busy state");
+        }
+        ResetEvent(applyEntered);
+        ResetEvent(applyRelease);
+        ResetEvent(applyExited);
+        auto owner = std::make_unique<DisplaySwitch>(blockedApply, fakeQuery);
+        owner->Start(0);
+        check(WaitForSingleObject(applyEntered, 1000) == WAIT_OBJECT_0, "second blocked worker started");
+        const auto before = GetTickCount64();
+        owner.reset();
+        check(GetTickCount64() - before < 500, "display switch destruction never joins a blocked worker");
+        SetEvent(applyRelease);
+        check(WaitForSingleObject(applyExited, 1000) == WAIT_OBJECT_0, "detached worker exits safely after owner destruction");
+        auto deniedApply = +[](UINT32, DISPLAYCONFIG_PATH_INFO*, UINT32, DISPLAYCONFIG_MODE_INFO*, UINT32) -> LONG {
+            return ERROR_ACCESS_DENIED;
+        };
+        DisplaySwitch denied(deniedApply, fakeQuery);
+        denied.Start(0);
+        SwitchUpdate update = SwitchUpdate::None;
+        for (int attempt = 0; update == SwitchUpdate::None && attempt < 100; ++attempt) {
+            update = denied.Poll(switchState);
+            Sleep(5);
+        }
+        check(update == SwitchUpdate::Failed && denied.LastError() == ERROR_ACCESS_DENIED && !denied.Pending(),
+              "graphics API failure preserves the Windows error and releases busy state");
+    } else
+        check(false, "display worker test events created");
+    if (applyEntered) CloseHandle(applyEntered);
+    if (applyRelease) CloseHandle(applyRelease);
+    if (applyExited) CloseHandle(applyExited);
     const auto scratch = storage.Root() / (L"self-test-" + std::to_wstring(GetCurrentProcessId()) + L"-" +
                                            std::to_wstring(GetTickCount64()));
     std::error_code error;

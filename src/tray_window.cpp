@@ -70,7 +70,14 @@ LRESULT Application::TrayProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         return 0;
     }
     if (msg == WM_TIMER) {
-        Tick();
+        if (wp == 2) {
+            if (nativeHook && optimizeMode && GetTickCount64() < nativeFastUntil)
+                nativeHook->Tick();
+            else
+                KillTimer(hwnd, 2);
+        } else {
+            Tick();
+        }
         return 0;
     }
     if (msg == WM_DISPLAYCHANGE) {

@@ -46,6 +46,7 @@ class Application final {
     static LRESULT CALLBACK KeyboardCallback(int code, WPARAM wp, LPARAM lp);
     static LRESULT CALLBACK SettingButtonCallback(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);
     static UINT DpiForMonitor(HMONITOR monitor);
+    static bool IsShellSurface(HWND window);
     static void RoundWindow(HWND hwnd);
     static void MaskStartMenu();
 
@@ -98,5 +99,7 @@ class Application final {
     int selected = -1, currentMode = -1, hovered = -1, settingsHover = -1;
     POINT initialCursor{};
     HMONITOR triggerMonitor{};
+    HMONITOR nativeTriggerMonitor{};
+    ULONGLONG nativeFastUntil{};
     std::wstring statusText;
 };

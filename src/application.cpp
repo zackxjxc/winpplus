@@ -1,5 +1,6 @@
 #include "application.h"
 #include "modern_ui.h"
+#include "popup_surface.h"
 
 #include <shellapi.h>
 #include <shellscalingapi.h>
@@ -24,6 +25,7 @@ Application::~Application() {
         DestroyWindow(settingsWindow);
     if (trayWindow) {
         KillTimer(trayWindow, 1);
+        KillTimer(trayWindow, 2);
         if (trayIconAdded) {
             NOTIFYICONDATAW icon{sizeof(icon)};
             icon.hWnd = trayWindow;
@@ -87,8 +89,11 @@ bool Application::RegisterWindows(HINSTANCE instance) {
     wc.lpszClassName = kMenuClass;
     if (!RegisterClassW(&wc))
         return false;
+    if (!popup_surface::RegisterShadowClass(instance))
+        return false;
     wc.lpfnWndProc = TrayCallback;
     wc.lpszClassName = kTrayClass;
+    wc.style = 0;
     return RegisterClassW(&wc) != 0;
 }
 
@@ -123,9 +128,21 @@ UINT Application::DpiForMonitor(HMONITOR monitor) {
     return x;
 }
 
+bool Application::IsShellSurface(HWND window) {
+    if (!window) return false;
+    HWND root = GetAncestor(window, GA_ROOT);
+    if (!root) root = window;
+    if (root == GetShellWindow() || root == GetDesktopWindow()) return true;
+    wchar_t cls[128]{};
+    GetClassNameW(root, cls, ARRAYSIZE(cls));
+    return wcscmp(cls, L"Progman") == 0 || wcscmp(cls, L"WorkerW") == 0 ||
+           wcscmp(cls, L"Shell_TrayWnd") == 0 || wcscmp(cls, L"Shell_SecondaryTrayWnd") == 0;
+}
+
 HMONITOR Application::ActiveMonitor(bool foregroundFirst) {
     HWND foreground = GetForegroundWindow();
-    if (foregroundFirst && foreground && foreground != settingsWindow && foreground != menuWindow)
+    if (foregroundFirst && foreground && foreground != settingsWindow && foreground != menuWindow &&
+        !IsShellSurface(foreground) && !(nativeHook && nativeHook->IsProjectionWindow(foreground)))
         return MonitorFromWindow(foreground, MONITOR_DEFAULTTONEAREST);
     POINT point{};
     if (GetCursorPos(&point))
@@ -165,10 +182,24 @@ LRESULT Application::KeyboardProc(int code, WPARAM wp, LPARAM lp) {
     const auto decision = router.Feed(key->vkCode, down);
     if (optimizeMode && nativeHook && down &&
         ((router.WinHeld() && key->vkCode != 'P' && key->vkCode != VK_LWIN && key->vkCode != VK_RWIN) ||
-         key->vkCode == VK_ESCAPE))
+         key->vkCode == VK_ESCAPE)) {
         nativeHook->RouteTo(nullptr);
-    if (decision.action == KeyAction::NativeRoute && nativeHook)
-        nativeHook->RouteTo(ActiveMonitor(true));
+        router.CancelNativeGesture();
+        nativeTriggerMonitor = nullptr;
+        nativeFastUntil = 0;
+        KillTimer(trayWindow, 2);
+    }
+    if (decision.action == KeyAction::NativeRoute && nativeHook) {
+        if (decision.beginNativeRoute || !nativeTriggerMonitor)
+            nativeTriggerMonitor = ActiveMonitor(true);
+        nativeHook->RouteTo(nativeTriggerMonitor);
+        // Only the opening gesture needs a short, faster poll. Keep the normal
+        // background timer at 250 ms when no native menu is being opened.
+        nativeFastUntil = GetTickCount64() + 2000;
+        SetTimer(trayWindow, 2, 16, nullptr);
+    }
+    if (up && !router.WinHeld())
+        nativeTriggerMonitor = nullptr;
     if (decision.action == KeyAction::Open)
         triggerMonitor = ActiveMonitor(false);
     if (decision.maskStart && !selfTest)
@@ -180,6 +211,9 @@ LRESULT Application::KeyboardProc(int code, WPARAM wp, LPARAM lp) {
 
 void Application::ConfigureModes() {
     CloseMenu();
+    nativeTriggerMonitor = nullptr;
+    nativeFastUntil = 0;
+    KillTimer(trayWindow, 2);
     router.Mode(customMode, optimizeMode);
     if (!selfTest)
         router.Synchronize();
@@ -199,7 +233,7 @@ void Application::ConfigureModes() {
         SetStatus(Tr(L"快捷键监听启动失败", L"Keyboard hook could not be started"));
     } else
         SetStatus(customMode     ? Tr(L"自定义菜单已启用", L"Custom menu enabled")
-                  : optimizeMode ? Tr(L"正在连接系统菜单…", L"Connecting system menu…")
+                  : optimizeMode ? L""
                                  : Tr(L"使用 Windows 默认菜单", L"Using the default Windows menu"));
     RefreshSettings();
 }
@@ -211,11 +245,11 @@ void Application::Tick() {
         nativeHook->Tick();
         SetStatus(nativeHook->Ready()       ? Tr(L"系统菜单优化已启用", L"System menu optimization enabled")
                   : nativeHook->LastError() ? Tr(L"系统菜单连接失败", L"System menu connection failed")
-                                            : Tr(L"正在连接系统菜单…", L"Connecting system menu…"));
+                                            : L"");
     }
     if (!displaySwitch.Pending())
         return;
-    const auto state = QueryCurrentDisplayState();
+    DisplayState state;
     switch (displaySwitch.Poll(state)) {
     case SwitchUpdate::Confirmed:
         SetStatus(Tr(L"显示配置已更新", L"Display configuration updated"));
@@ -225,6 +259,10 @@ void Application::Tick() {
         SetStatus(
             Tr(L"未确认显示切换，请检查显示器连接", L"Switch not confirmed; check display connections"));
         storage.Log(L"SWITCH_UNCONFIRMED " + state.summary);
+        break;
+    case SwitchUpdate::Failed:
+        SetStatus(Tr(L"无法应用显示配置", L"Could not apply display configuration"));
+        storage.Log(L"SWITCH_FAILED error=" + std::to_wstring(displaySwitch.LastError()));
         break;
     case SwitchUpdate::None:
         break;

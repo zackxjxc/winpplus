@@ -2,7 +2,7 @@
 #include <windows.h>
 
 enum class KeyAction { None, Open, Cycle, Commit, NativeRoute };
-struct KeyDecision { bool consume{}; KeyAction action{KeyAction::None}; bool maskStart{}; };
+struct KeyDecision { bool consume{}; KeyAction action{KeyAction::None}; bool maskStart{}; bool beginNativeRoute{}; };
 
 // Only the matching P press/release belongs to us. Other Win chords always pass through.
 class KeyboardRouter {
@@ -11,6 +11,7 @@ public:
         custom_ = custom; native_ = native; session_ = false; cycled_ = false;
         leftWin_ = false; rightWin_ = false; ctrl_ = alt_ = shift_ = 0;
         pDown_ = false; capturedP_ = false;
+        nativeGesture_ = false;
     }
     void Synchronize() {
         leftWin_ = (GetAsyncKeyState(VK_LWIN) & 0x8000) != 0;
@@ -24,11 +25,13 @@ public:
         pDown_ = (GetAsyncKeyState('P') & 0x8000) != 0; capturedP_ = false;
     }
     bool WinHeld() const { return leftWin_ || rightWin_; }
+    void CancelNativeGesture() { nativeGesture_ = false; }
     void MenuClosed() { session_ = false; cycled_ = false; }
     KeyDecision Feed(DWORD vk, bool down) {
         if (vk == VK_LWIN || vk == VK_RWIN) {
             bool& pressed = vk == VK_LWIN ? leftWin_ : rightWin_;
             pressed = down;
+            if (!leftWin_ && !rightWin_) nativeGesture_ = false;
             if (!down && !leftWin_ && !rightWin_ && session_ && cycled_) {
                 cycled_ = false;
                 return {false, KeyAction::Commit, false};
@@ -43,7 +46,11 @@ public:
         if (pDown_) return {capturedP_};
         pDown_ = true;
         if (!(leftWin_ || rightWin_) || ctrl_ || alt_ || shift_) return {};
-        if (native_) return {false, KeyAction::NativeRoute};
+        if (native_) {
+            const bool begin = !nativeGesture_;
+            nativeGesture_ = true;
+            return {false, KeyAction::NativeRoute, false, begin};
+        }
         if (!custom_) return {};
         capturedP_ = true;
         if (session_) { cycled_ = true; return {true, KeyAction::Cycle, true}; }
@@ -60,4 +67,5 @@ private:
     bool leftWin_{}, rightWin_{}, pDown_{}, capturedP_{};
     unsigned ctrl_{}, alt_{}, shift_{};
     bool custom_{}, native_{}, session_{}, cycled_{};
+    bool nativeGesture_{};
 };

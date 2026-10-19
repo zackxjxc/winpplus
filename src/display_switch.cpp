@@ -1,54 +1,86 @@
 #include "display_switch.h"
 
 #include <array>
-#include <filesystem>
+#include <atomic>
+#include <thread>
+
+struct DisplaySwitch::Operation {
+    std::atomic<bool> done{}, cancel{};
+    bool timeoutReported{};
+    ULONGLONG started = GetTickCount64();
+    DisplayState actual;
+    LONG error{};
+    SwitchUpdate result = SwitchUpdate::Unconfirmed;
+};
+
+DisplaySwitch::DisplaySwitch(ApplyFunction apply, QueryFunction query, DWORD timeoutMs)
+    : apply_(apply), query_(query), timeoutMs_(timeoutMs) {}
 
 DisplaySwitch::~DisplaySwitch() {
-    Reset();
-}
-
-void DisplaySwitch::Reset() {
-    if (process_)
-        CloseHandle(process_);
-    process_ = nullptr;
-    target_ = -1;
+    if (operation_)
+        operation_->cancel.store(true);
 }
 
 SwitchStart DisplaySwitch::Start(int mode) {
-    if (process_)
+    if (operation_)
         return SwitchStart::Busy;
-    constexpr std::array<const wchar_t*, 4> arguments{L"/internal", L"/clone", L"/extend", L"/external"};
-    if (mode < 0 || mode >= static_cast<int>(arguments.size()))
+    constexpr std::array<UINT32, 4> topologies{
+        SDC_TOPOLOGY_INTERNAL, SDC_TOPOLOGY_CLONE, SDC_TOPOLOGY_EXTEND, SDC_TOPOLOGY_EXTERNAL};
+    if (mode < 0 || mode >= static_cast<int>(topologies.size()) || !apply_ || !query_)
         return SwitchStart::Failed;
-    wchar_t folder[MAX_PATH]{};
-    GetSystemDirectoryW(folder, ARRAYSIZE(folder));
-    const auto exe = (std::filesystem::path(folder) / L"DisplaySwitch.exe").wstring();
-    std::wstring command = L"\"" + exe + L"\" " + arguments[static_cast<size_t>(mode)];
-    STARTUPINFOW startup{sizeof(startup)};
-    startup.dwFlags = STARTF_USESHOWWINDOW;
-    startup.wShowWindow = SW_HIDE;
-    PROCESS_INFORMATION process{};
-    if (!CreateProcessW(exe.c_str(), command.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr, &startup,
-                        &process))
+    auto operation = std::make_shared<Operation>();
+    try {
+        std::thread([operation, mode, flags = topologies[static_cast<size_t>(mode)],
+                     apply = apply_, query = query_, timeout = timeoutMs_]() {
+            try {
+                if (!operation->cancel.load()) {
+                    // Use Windows' saved layouts without starting a Shell flyout.
+                    operation->error = apply(0, nullptr, 0, nullptr, SDC_APPLY | flags);
+                    if (operation->error != ERROR_SUCCESS)
+                        operation->result = SwitchUpdate::Failed;
+                    else {
+                        while (!operation->cancel.load() && GetTickCount64() - operation->started < timeout) {
+                            operation->actual = query();
+                            if (operation->actual.mode == mode) {
+                                operation->result = SwitchUpdate::Confirmed;
+                                break;
+                            }
+                            Sleep(150);
+                        }
+                    }
+                }
+            } catch (...) {
+                operation->error = ERROR_GEN_FAILURE;
+                operation->result = SwitchUpdate::Failed;
+            }
+            operation->done.store(true, std::memory_order_release);
+        }).detach();
+    } catch (...) {
+        lastError_ = ERROR_NOT_ENOUGH_MEMORY;
         return SwitchStart::Failed;
-    CloseHandle(process.hThread);
-    process_ = process.hProcess;
-    target_ = mode;
-    started_ = GetTickCount64();
+    }
+    lastError_ = ERROR_SUCCESS;
+    operation_ = std::move(operation);
     return SwitchStart::Started;
 }
 
-SwitchUpdate DisplaySwitch::Poll(const DisplayState& actual) {
-    if (!process_)
+SwitchUpdate DisplaySwitch::Poll(DisplayState& actual) {
+    if (!operation_)
         return SwitchUpdate::None;
-    DWORD code{};
-    const bool exited = GetExitCodeProcess(process_, &code) && code != STILL_ACTIVE;
-    if (actual.mode == target_) {
-        Reset();
-        return SwitchUpdate::Confirmed;
+    if (operation_->done.load(std::memory_order_acquire)) {
+        actual = operation_->actual;
+        lastError_ = operation_->error;
+        const auto result = operation_->timeoutReported && operation_->result != SwitchUpdate::Confirmed
+                                ? SwitchUpdate::None : operation_->result;
+        operation_.reset();
+        return result;
     }
-    if ((exited && code != 0) || GetTickCount64() - started_ > 12000) {
-        Reset();
+    if (!operation_->timeoutReported && GetTickCount64() - operation_->started >= timeoutMs_) {
+        operation_->timeoutReported = true;
+        operation_->cancel.store(true);
+        lastError_ = WAIT_TIMEOUT;
+        actual.summary = L"display configuration worker timed out";
+        // Keep busy until the driver returns, avoiding concurrent requests.
         return SwitchUpdate::Unconfirmed;
     }
     return SwitchUpdate::None;
