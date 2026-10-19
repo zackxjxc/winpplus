@@ -7,6 +7,10 @@ Win+P enhancements for multiple displays:
 - **Native menu:** show the Windows projection menu on the active window's display.
 - **Custom menu:** show a synchronized, centered menu on every active display.
 
+## The Core Problem This Tool Solves
+
+Using two monitors in Extend mode, with your primary monitor in use by another device? Want Windows on the secondary screen only, but can’t see the `Win + P` menu? WinPPlus can show a projection menu on every screen or force the system menu to appear on your current screen, so you no longer have to switch blindly.
+
 [<img src="docs/images/settings-en.png" alt="WinPPlus settings" width="493">](docs/images/settings-en.png)
 
 [<img src="docs/images/menu-en.png" alt="Custom projection menu" width="640">](docs/images/menu-en.png)
