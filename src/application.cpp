@@ -106,7 +106,7 @@ void Application::SetStatus(const std::wstring& text) {
 }
 
 void Application::SaveConfig() {
-    if (!selfTest && !storage.Save({chinese, customMode, optimizeMode}))
+    if (!selfTest && !storage.Save({chinese, customMode, optimizeMode, showTrayIcon}))
         SetStatus(Tr(L"无法保存设置", L"Could not save settings"));
 }
 
@@ -115,6 +115,7 @@ void Application::LoadConfig() {
     chinese = settings.chinese;
     customMode = settings.custom;
     optimizeMode = settings.native;
+    showTrayIcon = settings.showTrayIcon;
     RefreshStartupState();
 }
 

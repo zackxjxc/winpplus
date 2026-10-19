@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <dwmapi.h>
+#include <windowsx.h>
 #include <fstream>
 
 int RunStartupTests(std::ostream& report);
@@ -202,6 +203,25 @@ int Application::RunSelfTests() {
           "desktop foreground uses the pointer screen instead of its spanning window bounds");
     check(!IsShellSurface(settingsWindow), "ordinary application windows keep foreground screen priority");
     check(!GetDlgItem(settingsWindow, 105), "settings has no menu preview button");
+    check(GetDlgItem(settingsWindow, 106) && showTrayIcon,
+          "tray visibility checkbox exists and defaults to checked");
+    ActivateSetting(106);
+    check(!showTrayIcon && !trayIconAdded && !trayIcon,
+          "unchecking tray visibility hides the icon without closing the application");
+    SendMessageW(trayWindow, WM_THEMECHANGED, 0, 0);
+    SendMessageW(trayWindow, WM_SETTINGCHANGE, 0, 0);
+    SendMessageW(trayWindow, RegisterWindowMessageW(L"TaskbarCreated"), 0, 0);
+    check(!showTrayIcon && !trayIconAdded && !trayIcon,
+          "theme changes and Explorer restart do not restore a disabled tray icon");
+    ShowWindow(settingsWindow, SW_HIDE);
+    SendMessageW(trayWindow, kShowSettings, 0, 0);
+    check(IsWindowVisible(settingsWindow),
+          "existing-instance activation opens settings while the tray icon is hidden");
+    SetFocus(GetDlgItem(settingsWindow, 106));
+    SendMessageW(GetDlgItem(settingsWindow, 106), WM_KEYDOWN, VK_SPACE, 0);
+    SendMessageW(GetDlgItem(settingsWindow, 106), WM_KEYUP, VK_SPACE, 0);
+    check(showTrayIcon, "tray visibility checkbox supports keyboard activation");
+    ActivateSetting(106);
     wchar_t caption[256]{};
     GetWindowTextW(settingsWindow, caption, ARRAYSIZE(caption));
     check(std::wstring(caption).find(kAppVersion) != std::wstring::npos,
@@ -253,6 +273,25 @@ int Application::RunSelfTests() {
         menuWindow, WM_LBUTTONUP, 0,
         MAKELPARAM(menuRect.right - modern_ui::Scale(menuWindow, 27), modern_ui::Scale(menuWindow, 25)));
     check(!menuWindow && !displaySwitch.Pending(), "header close button dismisses without display switching");
+    ShowWindow(settingsWindow, SW_HIDE);
+    ShowMenu(true);
+    pump();
+    const auto settingsMenus = menus;
+    selected = (currentMode + 1) % 4;
+    const int pendingBeforeSettings = selected;
+    GetClientRect(menuWindow, &menuRect);
+    const LPARAM settingsPoint = MAKELPARAM(menuRect.right - modern_ui::Scale(menuWindow, 65),
+                                           modern_ui::Scale(menuWindow, 25));
+    hoverEnabled = true;
+    SendMessageW(menuWindow, WM_MOUSEMOVE, 0, settingsPoint);
+    check(hovered == 5 && selected == pendingBeforeSettings &&
+              !modern_ui::MenuCloseHitTest(menuWindow,
+                  {GET_X_LPARAM(settingsPoint), GET_Y_LPARAM(settingsPoint)}),
+          "settings gear has its own hover target without changing the pending display selection");
+    SendMessageW(menuWindow, WM_LBUTTONUP, 0, settingsPoint);
+    check(!menuWindow && menus.empty() && IsWindowVisible(settingsWindow) && !displaySwitch.Pending() &&
+              std::none_of(settingsMenus.begin(), settingsMenus.end(), [](HWND window) { return IsWindow(window); }),
+          "settings gear closes every popup and opens settings without applying a pending display mode");
     ShowMenu(true);
     pump();
     const int clickTarget = (selected + 1) % 4;
@@ -340,12 +379,16 @@ int Application::RunSelfTests() {
     if (created) {
         AppStorage isolated(scratch);
         const auto defaults = isolated.Load();
-        check(defaults.chinese && defaults.custom && !defaults.native,
+        check(defaults.chinese && defaults.custom && !defaults.native && defaults.showTrayIcon,
               "missing configuration has safe defaults");
-        check(isolated.Save({false, false, true}), "configuration save succeeds");
+        check(isolated.Save({false, false, true, false}), "configuration save succeeds");
         const auto restored = isolated.Load();
-        check(!restored.chinese && !restored.custom && restored.native,
-              "language and menu mode survive round trip");
+        check(!restored.chinese && !restored.custom && restored.native && !restored.showTrayIcon,
+              "language, menu mode and hidden tray preference survive round trip");
+        const auto configPath = (scratch / L"config.ini").wstring();
+        check(WritePrivateProfileStringW(L"General", L"ShowTrayIcon", nullptr, configPath.c_str()) &&
+                  isolated.Load().showTrayIcon,
+              "older configuration without a tray preference defaults to visible");
         check(isolated.Save({true, true, true}), "conflicting mode fixture saved");
         const auto normalized = isolated.Load();
         check(normalized.custom && !normalized.native,

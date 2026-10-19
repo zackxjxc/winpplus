@@ -166,7 +166,8 @@ LRESULT Application::MenuProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         hoverEnabled = true;
         const POINT point{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
         const int index = modern_ui::MenuHitTest(hwnd, point);
-        const int nextHover = modern_ui::MenuCloseHitTest(hwnd, point) ? 4 : index;
+        const int nextHover = modern_ui::MenuCloseHitTest(hwnd, point) ? 4
+            : modern_ui::MenuSettingsHitTest(hwnd, point) ? 5 : index;
         const bool changed = nextHover != hovered;
         hovered = nextHover;
         if (changed)
@@ -181,6 +182,11 @@ LRESULT Application::MenuProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         return 0;
     case WM_LBUTTONUP: {
         const POINT point{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
+        if (modern_ui::MenuSettingsHitTest(hwnd, point)) {
+            CloseMenu();
+            ShowSettings();
+            return 0;
+        }
         if (modern_ui::MenuCloseHitTest(hwnd, point)) {
             CloseMenu();
             return 0;

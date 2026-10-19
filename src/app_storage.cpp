@@ -21,6 +21,7 @@ AppSettings AppStorage::Load() const {
     settings.custom = GetPrivateProfileIntW(L"General", L"CustomMode", 1, path.c_str()) != 0;
     settings.native =
         !settings.custom && GetPrivateProfileIntW(L"General", L"OptimizeMode", 0, path.c_str()) != 0;
+    settings.showTrayIcon = GetPrivateProfileIntW(L"General", L"ShowTrayIcon", 1, path.c_str()) != 0;
     return settings;
 }
 
@@ -37,7 +38,9 @@ bool AppStorage::Save(const AppSettings& settings) const {
                                                         settings.custom ? L"1" : L"0", path.c_str()) != FALSE;
     const bool nativeSaved = WritePrivateProfileStringW(L"General", L"OptimizeMode",
                                                         settings.native ? L"1" : L"0", path.c_str()) != FALSE;
-    return languageSaved && customSaved && nativeSaved;
+    const bool traySaved = WritePrivateProfileStringW(L"General", L"ShowTrayIcon",
+        settings.showTrayIcon ? L"1" : L"0", path.c_str()) != FALSE;
+    return languageSaved && customSaved && nativeSaved && traySaved;
 }
 
 std::wstring AppStorage::ExtractHook() const {

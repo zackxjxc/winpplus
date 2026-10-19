@@ -176,7 +176,8 @@ RECT SettingsRect(const Canvas& c, int id) {
     case 101: return c.R(24, 150, c.width - 48, 64);
     case 102: return c.R(24, 214, c.width - 48, 64);
     case 103: return c.R(24, 302, 165, 32);
-    case 104: return c.R(c.width - 144, 302, 120, 32);
+    case 104: return c.R(c.width - 144, 20, 120, 32);
+    case 106: return c.R(24, 338, c.width - 48, 32);
     default: return {};
     }
 }
@@ -202,7 +203,7 @@ RECT GetSettingsControlRect(HWND hwnd, int controlId) {
 }
 
 int SettingsHitTest(HWND hwnd, POINT point) {
-    for (int id : {100, 101, 102, 103, 104}) {
+    for (int id : {100, 101, 102, 103, 104, 106}) {
         RECT rect = GetSettingsControlRect(hwnd, id);
         if (PtInRect(&rect, point)) return id;
     }
@@ -230,12 +231,24 @@ bool MenuCloseHitTest(HWND hwnd, POINT point) {
     return PtInRect(&rect, point) != FALSE;
 }
 
+bool MenuSettingsHitTest(HWND hwnd, POINT point) {
+    RECT client{};
+    GetClientRect(hwnd, &client);
+    RECT rect{client.right - Scale(hwnd, 82), Scale(hwnd, 8),
+        client.right - Scale(hwnd, 48), Scale(hwnd, 42)};
+    return PtInRect(&rect, point) != FALSE;
+}
+
 void DrawSettings(HWND hwnd, HDC dc, bool chinese, bool optimize, bool custom,
-    bool startup, int hovered, std::wstring_view status, std::wstring_view startupHint) {
+    bool startup, int hovered, std::wstring_view status, std::wstring_view startupHint, bool showTrayIcon) {
     BufferedPaint paint(hwnd, dc);
     const Canvas c = paint.Get(hwnd);
     Fill(c, c.R(0, 0, c.width, c.height), kWhite);
-    Text(c, chinese ? L"投屏设置" : L"Projection settings", c.R(24, 20, c.width - 48, 30), 23, kInk, true);
+    Text(c, chinese ? L"投屏设置" : L"Projection settings", c.R(24, 20, c.width - 192, 30), 23, kInk, true);
+    Rounded(c, SettingsRect(c, 104), 4, hovered == 104 ? kHover : kWhite, kBorder);
+    Text(c, chinese ? L"简体中文" : L"English", c.R(c.width - 132, 20, 87, 32), 12, kInk);
+    Line(c, c.width - 43, 34, c.width - 39, 38, kMuted);
+    Line(c, c.width - 39, 38, c.width - 35, 34, kMuted);
     Text(c, chinese ? L"按下 Win + P 时" : L"When you press Win + P", c.R(24, 62, c.width - 48, 18), 12, kMuted);
     const std::array<std::wstring_view, 3> titles = chinese
         ? std::array<std::wstring_view, 3>{L"使用系统默认菜单", L"让原生菜单跟随活动屏幕", L"使用自定义居中菜单"}
@@ -256,16 +269,16 @@ void DrawSettings(HWND hwnd, HDC dc, bool chinese, bool optimize, bool custom,
     Rounded(c, c.R(25, 310, 16, 16), 3, startup ? kAccent : kWhite, startup ? kAccent : RGB(175, 181, 190));
     if (startup) Check(c, 27, 312, kWhite);
     Text(c, chinese ? L"开机启动" : L"Start with Windows", c.R(49, 302, 140, 32), 12, kInk);
-    Rounded(c, SettingsRect(c, 104), 4, hovered == 104 ? kHover : kWhite, kBorder);
-    Text(c, chinese ? L"简体中文" : L"English", c.R(c.width - 132, 302, 87, 32), 12, kInk);
-    Line(c, c.width - 43, 316, c.width - 39, 320, kMuted);
-    Line(c, c.width - 39, 320, c.width - 35, 316, kMuted);
+    Rounded(c, c.R(25, 346, 16, 16), 3, showTrayIcon ? kAccent : kWhite,
+        showTrayIcon ? kAccent : RGB(175, 181, 190));
+    if (showTrayIcon) Check(c, 27, 348, kWhite);
+    Text(c, chinese ? L"显示托盘图标" : L"Show tray icon", c.R(49, 338, c.width - 73, 32), 12, kInk);
     constexpr std::array<std::wstring_view, 6> routineStatus{L"自定义菜单已启用", L"Custom menu enabled",
         L"系统菜单优化已启用", L"System menu optimization enabled", L"使用 Windows 默认菜单", L"Using the default Windows menu"};
     if (!startupHint.empty())
-        Text(c, startupHint, c.R(24, 346, c.width - 48, 28), 11, kMuted, false, DT_LEFT | DT_WORDBREAK);
+        Text(c, startupHint, c.R(24, 374, c.width - 48, 28), 11, kMuted, false, DT_LEFT | DT_WORDBREAK);
     else if (std::find(routineStatus.begin(), routineStatus.end(), status) == routineStatus.end())
-        Text(c, status, c.R(24, 346, c.width - 48, 28), 11, kMuted, false, DT_LEFT | DT_WORDBREAK);
+        Text(c, status, c.R(24, 374, c.width - 48, 28), 11, kMuted, false, DT_LEFT | DT_WORDBREAK);
 }
 
 void DrawMenu(HWND hwnd, HDC dc, bool chinese, int selected, int current, int hovered, bool preview) {
@@ -274,8 +287,18 @@ void DrawMenu(HWND hwnd, HDC dc, bool chinese, int selected, int current, int ho
     Fill(c, c.R(0, 0, c.width, c.height), kWhite);
     Text(c, chinese ? L"投屏" : L"Project", c.R(24, 14, 90, 28), 17, kInk, true);
     if (preview) Text(c, chinese ? L"预览 · 不切换显示模式" : L"Preview · no display changes",
-        c.R(chinese ? 82 : 102, 15, c.width - 250, 26), 11, kMuted);
-    Text(c, L"Win + P", c.R(c.width - 125, 15, 64, 26), 11, kMuted, false, DT_RIGHT | DT_SINGLELINE | DT_VCENTER);
+        c.R(chinese ? 82 : 102, 15, c.width - 290, 26), 11, kMuted);
+    if (hovered == 5) Rounded(c, c.R(c.width - 82, 8, 34, 34), 5, kHover, kHover);
+    HFONT gearFont = CreateFontW(-c.S(16), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
+        DEFAULT_PITCH, L"Segoe MDL2 Assets");
+    const HGDIOBJ previousFont = SelectObject(c.dc, gearFont);
+    SetBkMode(c.dc, TRANSPARENT);
+    SetTextColor(c.dc, kMuted);
+    RECT gearRect = c.R(c.width - 82, 8, 34, 34);
+    DrawTextW(c.dc, L"\uE713", 1, &gearRect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+    SelectObject(c.dc, previousFont);
+    DeleteObject(gearFont);
     if (hovered == 4) Rounded(c, c.R(c.width - 44, 8, 34, 34), 5, kHover, kHover);
     Line(c, c.width - 31, 21, c.width - 23, 29, kMuted);
     Line(c, c.width - 23, 21, c.width - 31, 29, kMuted);
