@@ -20,9 +20,7 @@ void Application::CloseMenu() {
     menuPreviewSession = false;
     for (HWND hwnd : windows) {
         if (IsWindow(hwnd)) {
-            HWND shadow = GetWindow(hwnd, GW_OWNER);
             DestroyWindow(hwnd);
-            if (shadow) DestroyWindow(shadow);
         }
     }
     closingMenu = false;
@@ -102,26 +100,19 @@ void Application::ShowMenu(bool visualPreview) {
                   height = MulDiv(modern_ui::kMenuHeight, static_cast<int>(dpi), 96);
         const int x = info.rcWork.left + (info.rcWork.right - info.rcWork.left - width) / 2,
                   y = info.rcWork.top + (info.rcWork.bottom - info.rcWork.top - height) / 2;
-        const RECT body{x, y, x + width, y + height};
-        HWND shadow = popup_surface::CreateShadow(GetModuleHandleW(nullptr), body);
-        HWND hwnd = CreateWindowExW(WS_EX_LAYERED | WS_EX_TOPMOST | (previewMenu ? WS_EX_APPWINDOW : WS_EX_TOOLWINDOW),
-                                    kMenuClass, Tr(L"投屏", L"Project"), WS_POPUP, x, y, width, height,
-                                    shadow, nullptr, GetModuleHandleW(nullptr), this);
+        HWND hwnd = CreateWindowExW(WS_EX_TOPMOST | (previewMenu ? WS_EX_APPWINDOW : WS_EX_TOOLWINDOW),
+                                    kMenuClass, Tr(L"投屏", L"Project"), WS_POPUP | WS_THICKFRAME | WS_CAPTION,
+                                    x, y, width, height, nullptr, nullptr, GetModuleHandleW(nullptr), this);
         if (!hwnd) {
-            if (shadow) DestroyWindow(shadow);
             continue;
         }
-        popup_surface::UpdateShadow(hwnd);
+        if (!popup_surface::ApplyNativeFrame(hwnd))
+            storage.Log(L"MENU native DWM frame unavailable");
+        SetWindowPos(hwnd, nullptr, 0, 0, 0, 0,
+                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
         menus.push_back(hwnd);
         if (monitor == active || !menuWindow)
             menuWindow = hwnd;
-        // A per-pixel layered window has no visible surface until its first
-        // UpdateLayeredWindow; initialize it before showing either window.
-        if (HDC dc = GetDC(hwnd)) {
-            modern_ui::DrawMenu(hwnd, dc, chinese, selected, currentMode, hovered, menuPreviewSession);
-            ReleaseDC(hwnd, dc);
-        }
-        if (shadow) ShowWindow(shadow, SW_SHOWNOACTIVATE);
         ShowWindow(hwnd, SW_SHOWNOACTIVATE);
         UpdateWindow(hwnd);
         storage.Log(L"MENU hwnd=" + std::to_wstring(reinterpret_cast<UINT_PTR>(hwnd)) + L" dpi=" +
@@ -152,16 +143,12 @@ LRESULT Application::MenuProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         return 0;
     case WM_NCHITTEST:
         return HTCLIENT;
-    case WM_NCPAINT:
-        return 0;
     case WM_NCACTIVATE:
         return DefWindowProcW(hwnd, msg, wp, -1);
     case WM_DWMCOMPOSITIONCHANGED:
+        popup_surface::ApplyNativeFrame(hwnd);
         RepaintMenus();
         return 0;
-    case WM_WINDOWPOSCHANGED:
-        popup_surface::UpdateShadow(hwnd);
-        break;
     case WM_PAINT: {
         PAINTSTRUCT ps{};
         HDC dc = BeginPaint(hwnd, &ps);
@@ -224,6 +211,7 @@ LRESULT Application::MenuProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         }
         break;
     case WM_ACTIVATE:
+        popup_surface::ApplyNativeFrame(hwnd);
         // Keep the explicit documentation preview open while a capture tool has focus.
         if (LOWORD(wp) == WA_INACTIVE && !previewMenu && !openingMenu && !closingMenu)
             PostMessageW(trayWindow, kFocusCheck, 0, 0);

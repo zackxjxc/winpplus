@@ -1,6 +1,5 @@
 #include "application.h"
 #include "modern_ui.h"
-#include "popup_surface.h"
 
 #include <shellapi.h>
 #include <shellscalingapi.h>
@@ -88,8 +87,6 @@ bool Application::RegisterWindows(HINSTANCE instance) {
     wc.lpfnWndProc = MenuCallback;
     wc.lpszClassName = kMenuClass;
     if (!RegisterClassW(&wc))
-        return false;
-    if (!popup_surface::RegisterShadowClass(instance))
         return false;
     wc.lpfnWndProc = TrayCallback;
     wc.lpszClassName = kTrayClass;
