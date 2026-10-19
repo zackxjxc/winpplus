@@ -61,7 +61,7 @@ Win 10 的侧边栏由 ShellExperienceHost 承载，控制器通过 FindWindowEx
 
 Win 10 每次触发后用 16 ms 临时计时器加快前两秒的定位，随后恢复 250 ms 后台轮询；复用同一 HWND/进程/DPI 下已验证的菜单内容宽度，并尝试在放行 Win+P 前预定位已有窗口。首次打开仍需等 Shell 创建窗口和 UIA 内容出现，Shell 也可能覆盖预定位；这种外部搬移方案不能保证目标屏幕从第一帧起显示、完全没有主屏闪现。Win 11 内部钩子的创建阶段定位保持原样。
 
-自定义菜单使用无系统边框的逐像素透明窗口，白色内容绘制后按圆角覆盖率生成预乘 BGRA，再经 UpdateLayeredWindow 提交；圆角外部真正透明。阴影是位于菜单下方的独立分层 owner 窗口，使用同一圆角轮廓生成柔和扩散，不接收鼠标或焦点。菜单关闭时同步销毁阴影，DPI 或位置变化时同步更新。Win 10 VM 的 125% 桌面截图用于检查圆角和阴影，命中检查验证透明角和阴影区域可穿透。实现参考 [borderless-window](https://github.com/rossy/borderless-window) 与 [LayeredWindow](https://github.com/dhpoware/LayeredWindow) 的 Win32 窗口和 alpha 合成用法。设置页圆环使用 GDI+ 抗锯齿椭圆绘制。
+自定义菜单保留 `WS_THICKFRAME | WS_CAPTION`，通过 `WM_NCCALCSIZE` 将整个窗口交给客户区绘制，隐藏标题栏和可见的系统框架；命中检查始终返回 `HTCLIENT`，不提供边缘缩放或标题栏拖动。`DWMNCRP_ENABLED` 配合 `DwmExtendFrameIntoClientArea` 的 1 像素边距保留 DWM 原生阴影，非客户区绘制由系统处理；激活及合成状态变化时重新应用。没有独立阴影窗口、逐像素透明合成或窗口区域裁剪。Win 10 使用原生直角；Win 11 通过 `DWMWA_WINDOW_CORNER_PREFERENCE` 请求系统圆角，并隐藏系统描边，按 API 能力检测分支，不支持时保留 Win 10 行为。系统策略仍可决定不绘制圆角或阴影。原理参照微软 [DWM 自定义框架](https://learn.microsoft.com/en-us/windows/win32/dwm/customframe)、[Win 11 圆角接口](https://learn.microsoft.com/en-us/windows/apps/desktop/modernize/ui/apply-rounded-corners) 与 GitHub [BorderlessWindow](https://github.com/melak47/BorderlessWindow)。本机 Win 10 19044 的桌面截图验证了原生阴影及直角，并通过开关 DWM 非客户区渲染进行阴影对照；Win 11 外观尚未实机验证。设置页圆环继续使用 GDI+ 抗锯齿椭圆绘制。
 
 ## 验证与实际范围
 

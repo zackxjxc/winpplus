@@ -1,5 +1,4 @@
 #include "modern_ui.h"
-#include "popup_surface.h"
 
 #include <objidl.h>
 #include <gdiplus.h>
@@ -32,17 +31,14 @@ struct Canvas {
 
 class BufferedPaint {
 public:
-    BufferedPaint(HWND hwnd, HDC destination, bool layered = false) : window_(hwnd), target_(destination), layered_(layered) {
+    BufferedPaint(HWND hwnd, HDC destination) : target_(destination) {
         GetClientRect(hwnd, &rect_);
         dc_ = CreateCompatibleDC(destination);
         bitmap_ = CreateCompatibleBitmap(destination, std::max(1L, rect_.right), std::max(1L, rect_.bottom));
         previous_ = SelectObject(dc_, bitmap_);
     }
     ~BufferedPaint() {
-        if (layered_)
-            popup_surface::PaintCard(window_, dc_);
-        else
-            BitBlt(target_, 0, 0, rect_.right, rect_.bottom, dc_, 0, 0, SRCCOPY);
+        BitBlt(target_, 0, 0, rect_.right, rect_.bottom, dc_, 0, 0, SRCCOPY);
         SelectObject(dc_, previous_);
         DeleteObject(bitmap_);
         DeleteDC(dc_);
@@ -53,9 +49,7 @@ public:
             MulDiv(rect_.bottom, 96, static_cast<int>(dpi))};
     }
 private:
-    HWND window_{};
     HDC target_{};
-    bool layered_{};
     HDC dc_{};
     HBITMAP bitmap_{};
     HGDIOBJ previous_{};
@@ -275,7 +269,7 @@ void DrawSettings(HWND hwnd, HDC dc, bool chinese, bool optimize, bool custom,
 }
 
 void DrawMenu(HWND hwnd, HDC dc, bool chinese, int selected, int current, int hovered, bool preview) {
-    BufferedPaint paint(hwnd, dc, true);
+    BufferedPaint paint(hwnd, dc);
     const Canvas c = paint.Get(hwnd);
     Fill(c, c.R(0, 0, c.width, c.height), kWhite);
     Text(c, chinese ? L"投屏" : L"Project", c.R(24, 14, 90, 28), 17, kInk, true);

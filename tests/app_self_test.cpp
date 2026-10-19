@@ -3,6 +3,7 @@
 #include "app_version.h"
 
 #include <algorithm>
+#include <dwmapi.h>
 #include <fstream>
 
 int RunStartupTests(std::ostream& report);
@@ -108,15 +109,15 @@ int Application::RunSelfTests() {
           "borderless menu preserves the full content client area");
     check(SendMessageW(menuWindow, WM_NCHITTEST, 0, 0) == HTCLIENT,
           "borderless menu does not expose resize or drag borders");
-    HWND shadow = GetWindow(menuWindow, GW_OWNER);
-    const LONG_PTR shadowStyles = shadow ? GetWindowLongPtrW(shadow, GWL_EXSTYLE) : 0;
-    check(shadow && IsWindowVisible(shadow) &&
-              (shadowStyles & (WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE)) ==
-                  (WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE),
-          "popup shadow is visible without accepting mouse input or activation");
-    check((GetWindowLongPtrW(menuWindow, GWL_STYLE) & WS_THICKFRAME) == 0 &&
-              (GetWindowLongPtrW(menuWindow, GWL_EXSTYLE) & WS_EX_LAYERED) != 0,
-          "rounded popup uses pixel alpha without a rectangular system frame");
+    const HWND openedMenu = menuWindow;
+    BOOL nativeRendering = FALSE;
+    check(SUCCEEDED(DwmGetWindowAttribute(menuWindow, DWMWA_NCRENDERING_ENABLED,
+                                        &nativeRendering, sizeof(nativeRendering))) && nativeRendering,
+          "popup retains native DWM nonclient rendering for its system shadow");
+    check(GetWindow(menuWindow, GW_OWNER) == nullptr &&
+              (GetWindowLongPtrW(menuWindow, GWL_STYLE) & WS_THICKFRAME) != 0 &&
+              (GetWindowLongPtrW(menuWindow, GWL_EXSTYLE) & WS_EX_LAYERED) == 0,
+          "popup uses a native frame without a separate shadow window or pixel alpha");
     check(display.mode < 0 || selected == display.mode, "menu initialization matches actual topology");
     std::vector<HMONITOR> monitors;
     EnumDisplayMonitors(
@@ -164,7 +165,7 @@ int Application::RunSelfTests() {
     key(VK_LWIN, false);
     pump();
     check(!menuWindow, "cycled release confirms changed selection (dry run)");
-    check(!IsWindow(shadow), "closing the popup also destroys its shadow");
+    check(!IsWindow(openedMenu), "closing destroys the popup and releases its native frame");
     key(VK_LWIN, true);
     key('P', true);
     key('P', false);
