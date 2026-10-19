@@ -1,6 +1,7 @@
 #include "application.h"
 #include "modern_ui.h"
 #include "app_version.h"
+#include "platform_support.h"
 
 #include <algorithm>
 #include <dwmapi.h>
@@ -18,6 +19,22 @@ int Application::RunSelfTests() {
         if (!ok)
             ++failures;
     };
+    static int versionNotices{};
+    static bool validVersionNotice{};
+    versionNotices = 0;
+    validVersionNotice = false;
+    const auto notice = +[](HWND owner, LPCWSTR message, LPCWSTR title, UINT flags) -> int {
+        ++versionNotices;
+        validVersionNotice = owner == nullptr && wcscmp(title, L"WinPPlus") == 0 &&
+            (wcscmp(message, L"仅限 Windows 10 及以上系统使用。") == 0 ||
+             wcscmp(message, L"Windows 10 or later is required.") == 0) &&
+            flags == (MB_OK | MB_ICONINFORMATION);
+        return IDOK;
+    };
+    check(!RequireWindows10(false, notice) && versionNotices == 1 && validVersionNotice,
+          "unsupported Windows is rejected with one explicit version notice");
+    check(RequireWindows10(IsWindows10OrGreater(), notice) && versionNotices == 1,
+          "supported Windows passes the manifested version check without a notice");
     KeyboardRouter test;
     test.Mode(true, false);
     check(!test.Feed(VK_LWIN, true).consume, "Win down forwarded");

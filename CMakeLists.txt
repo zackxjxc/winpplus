@@ -78,9 +78,22 @@ add_executable(WinPPlus WIN32
     tests/startup_registration_test.cpp
     "${hook_resource}")
 target_include_directories(WinPPlus PRIVATE src "${CMAKE_CURRENT_BINARY_DIR}/generated")
+# Delay modern UI/scaling imports and the static CRT's CreateFile2 dependency
+# so old systems can reach the version notice. Only an import library is
+# generated here; no extra DLL is distributed.
+set(legacy_file_import "${CMAKE_CURRENT_BINARY_DIR}/legacy_file_import.lib")
+add_custom_command(OUTPUT "${legacy_file_import}"
+    COMMAND "${CMAKE_AR}" /nologo /machine:x64
+        "/def:${CMAKE_CURRENT_SOURCE_DIR}/cmake/legacy_file_import.def" "/out:${legacy_file_import}"
+    DEPENDS cmake/legacy_file_import.def
+    VERBATIM)
+add_custom_target(winpplus_legacy_file_import DEPENDS "${legacy_file_import}")
+add_dependencies(WinPPlus winpplus_legacy_file_import)
 target_link_libraries(WinPPlus PRIVATE winpplus_build_options
-    user32 gdi32 gdiplus shell32 dwmapi shcore ole32 oleaut32 advapi32)
-target_link_options(WinPPlus PRIVATE /ENTRY:wWinMainCRTStartup /PDBALTPATH:WinPPlus.pdb)
+    "${legacy_file_import}" delayimp user32 gdi32 gdiplus shell32 dwmapi shcore ole32 oleaut32 advapi32)
+target_link_options(WinPPlus PRIVATE /ENTRY:wWinMainCRTStartup /PDBALTPATH:WinPPlus.pdb
+    /DELAYLOAD:user32.dll /DELAYLOAD:api-ms-win-shcore-scaling-l1-1-1.dll
+    /DELAYLOAD:api-ms-win-core-file-l1-2-0.dll)
 set_property(DIRECTORY PROPERTY VS_STARTUP_PROJECT WinPPlus)
 
 include(CTest)

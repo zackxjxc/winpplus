@@ -1,0 +1,4 @@
+; Delay this modern CRT dependency so Windows 7 can reach the version notice.
+LIBRARY api-ms-win-core-file-l1-2-0.dll
+EXPORTS
+    CreateFile2
