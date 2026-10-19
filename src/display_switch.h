@@ -1,29 +1,38 @@
 #pragma once
 
 #include <windows.h>
+#include <memory>
 #include "display_state.h"
 
 enum class SwitchStart { Started, Busy, Failed };
-enum class SwitchUpdate { None, Confirmed, Unconfirmed };
+enum class SwitchUpdate { None, Confirmed, Unconfirmed, Failed };
 
-// Owns the asynchronous DisplaySwitch process; closing a handle does not kill it.
+// CCD calls can block in the graphics driver. The worker owns its state and never
+// accesses a window or the owner; polling and destruction do not wait for it.
 class DisplaySwitch final {
   public:
+    using ApplyFunction = decltype(&SetDisplayConfig);
+    using QueryFunction = decltype(&QueryCurrentDisplayState);
     ~DisplaySwitch();
-    DisplaySwitch() = default;
+    explicit DisplaySwitch(ApplyFunction apply = &SetDisplayConfig,
+                           QueryFunction query = &QueryCurrentDisplayState, DWORD timeoutMs = 12000);
     DisplaySwitch(const DisplaySwitch&) = delete;
     DisplaySwitch& operator=(const DisplaySwitch&) = delete;
 
     SwitchStart Start(int mode);
-    SwitchUpdate Poll(const DisplayState& actual);
+    SwitchUpdate Poll(DisplayState& actual);
+
+    LONG LastError() const { return lastError_; }
 
     bool Pending() const {
-        return process_ != nullptr;
+        return operation_ != nullptr;
     }
 
   private:
-    void Reset();
-    HANDLE process_{};
-    int target_ = -1;
-    ULONGLONG started_{};
+    struct Operation;
+    std::shared_ptr<Operation> operation_;
+    ApplyFunction apply_;
+    QueryFunction query_;
+    DWORD timeoutMs_;
+    LONG lastError_{};
 };

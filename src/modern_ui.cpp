@@ -1,5 +1,8 @@
 #include "modern_ui.h"
+#include "popup_surface.h"
 
+#include <objidl.h>
+#include <gdiplus.h>
 #include <algorithm>
 #include <array>
 #include <string>
@@ -29,14 +32,17 @@ struct Canvas {
 
 class BufferedPaint {
 public:
-    BufferedPaint(HWND hwnd, HDC destination) : target_(destination) {
+    BufferedPaint(HWND hwnd, HDC destination, bool layered = false) : window_(hwnd), target_(destination), layered_(layered) {
         GetClientRect(hwnd, &rect_);
         dc_ = CreateCompatibleDC(destination);
         bitmap_ = CreateCompatibleBitmap(destination, std::max(1L, rect_.right), std::max(1L, rect_.bottom));
         previous_ = SelectObject(dc_, bitmap_);
     }
     ~BufferedPaint() {
-        BitBlt(target_, 0, 0, rect_.right, rect_.bottom, dc_, 0, 0, SRCCOPY);
+        if (layered_)
+            popup_surface::PaintCard(window_, dc_);
+        else
+            BitBlt(target_, 0, 0, rect_.right, rect_.bottom, dc_, 0, 0, SRCCOPY);
         SelectObject(dc_, previous_);
         DeleteObject(bitmap_);
         DeleteDC(dc_);
@@ -47,7 +53,9 @@ public:
             MulDiv(rect_.bottom, 96, static_cast<int>(dpi))};
     }
 private:
+    HWND window_{};
     HDC target_{};
+    bool layered_{};
     HDC dc_{};
     HBITMAP bitmap_{};
     HGDIOBJ previous_{};
@@ -96,15 +104,24 @@ void Text(const Canvas& c, std::wstring_view value, RECT rect, int size,
 }
 
 void Circle(const Canvas& c, RECT rect, COLORREF fill, COLORREF border, int thickness = 1) {
-    HBRUSH brush = CreateSolidBrush(fill);
-    HPEN pen = CreatePen(PS_SOLID, std::max(1, c.S(thickness)), border);
-    HGDIOBJ oldBrush = SelectObject(c.dc, brush);
-    HGDIOBJ oldPen = SelectObject(c.dc, pen);
-    Ellipse(c.dc, rect.left, rect.top, rect.right, rect.bottom);
-    SelectObject(c.dc, oldPen);
-    SelectObject(c.dc, oldBrush);
-    DeleteObject(pen);
-    DeleteObject(brush);
+    struct Runtime {
+        ULONG_PTR token{};
+        Runtime() { Gdiplus::GdiplusStartupInput input; Gdiplus::GdiplusStartup(&token, &input, nullptr); }
+        ~Runtime() { if (token) Gdiplus::GdiplusShutdown(token); }
+    };
+    static Runtime runtime;
+    Gdiplus::Graphics graphics(c.dc);
+    graphics.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+    graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
+    const auto color = [](COLORREF value) { return Gdiplus::Color(255, GetRValue(value), GetGValue(value), GetBValue(value)); };
+    const float stroke = static_cast<float>(std::max(1, c.S(thickness)));
+    const Gdiplus::RectF ellipse(static_cast<float>(rect.left) + stroke / 2, static_cast<float>(rect.top) + stroke / 2,
+                                static_cast<float>(rect.right - rect.left) - stroke,
+                                static_cast<float>(rect.bottom - rect.top) - stroke);
+    Gdiplus::SolidBrush brush(color(fill));
+    Gdiplus::Pen pen(color(border), stroke);
+    graphics.FillEllipse(&brush, ellipse);
+    graphics.DrawEllipse(&pen, ellipse);
 }
 
 void Outline(const Canvas& c, RECT rect, COLORREF color) {
@@ -258,10 +275,9 @@ void DrawSettings(HWND hwnd, HDC dc, bool chinese, bool optimize, bool custom,
 }
 
 void DrawMenu(HWND hwnd, HDC dc, bool chinese, int selected, int current, int hovered, bool preview) {
-    BufferedPaint paint(hwnd, dc);
+    BufferedPaint paint(hwnd, dc, true);
     const Canvas c = paint.Get(hwnd);
     Fill(c, c.R(0, 0, c.width, c.height), kWhite);
-    Rounded(c, c.R(0, 0, c.width, c.height), 10, kWhite, kBorder);
     Text(c, chinese ? L"投屏" : L"Project", c.R(24, 14, 90, 28), 17, kInk, true);
     if (preview) Text(c, chinese ? L"预览 · 不切换显示模式" : L"Preview · no display changes",
         c.R(chinese ? 82 : 102, 15, c.width - 250, 26), 11, kMuted);

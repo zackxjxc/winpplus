@@ -70,6 +70,7 @@ add_executable(WinPPlus WIN32
     src/display_state.cpp
     src/display_switch.cpp
     src/modern_ui.cpp
+    src/popup_surface.cpp
     src/native_hook_controller.cpp
     src/tray_resources.rc
     "${CMAKE_CURRENT_BINARY_DIR}/generated/WinPPlus.manifest"
@@ -78,7 +79,7 @@ add_executable(WinPPlus WIN32
     "${hook_resource}")
 target_include_directories(WinPPlus PRIVATE src "${CMAKE_CURRENT_BINARY_DIR}/generated")
 target_link_libraries(WinPPlus PRIVATE winpplus_build_options
-    user32 gdi32 shell32 dwmapi shcore ole32 oleaut32 advapi32)
+    user32 gdi32 gdiplus shell32 dwmapi shcore ole32 oleaut32 advapi32)
 target_link_options(WinPPlus PRIVATE /ENTRY:wWinMainCRTStartup /PDBALTPATH:WinPPlus.pdb)
 set_property(DIRECTORY PROPERTY VS_STARTUP_PROJECT WinPPlus)
 

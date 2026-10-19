@@ -1,5 +1,6 @@
 #include "application.h"
 #include "modern_ui.h"
+#include "popup_surface.h"
 
 #include <windowsx.h>
 
@@ -17,9 +18,13 @@ void Application::CloseMenu() {
     hoverEnabled = false;
     hovered = -1;
     menuPreviewSession = false;
-    for (HWND hwnd : windows)
-        if (IsWindow(hwnd))
+    for (HWND hwnd : windows) {
+        if (IsWindow(hwnd)) {
+            HWND shadow = GetWindow(hwnd, GW_OWNER);
             DestroyWindow(hwnd);
+            if (shadow) DestroyWindow(shadow);
+        }
+    }
     closingMenu = false;
     storage.Log(L"MENU_CLOSED");
 }
@@ -27,8 +32,8 @@ void Application::CloseMenu() {
 void Application::CommitSelection(bool releasedWin) {
     if (selected < 0 || selected > 3)
         return;
-    const auto state = QueryCurrentDisplayState();
-    currentMode = state.mode;
+    // WM_DISPLAYCHANGE dismisses stale menus. Use the opening snapshot here so
+    // releasing Win never waits for a graphics-driver query on the UI thread.
     if (releasedWin && selected == currentMode) {
         RepaintMenus();
         storage.Log(L"RELEASE_NO_CHANGE keep-menu");
@@ -66,6 +71,11 @@ void Application::CommitSelection(bool releasedWin) {
 void Application::ShowMenu(bool visualPreview) {
     if ((!customMode && !visualPreview) || menuWindow)
         return;
+    if (displaySwitch.Pending()) {
+        router.MenuClosed();
+        SetStatus(Tr(L"显示配置正在切换，请稍候", L"Display configuration is changing"));
+        return;
+    }
     menuPreviewSession = visualPreview;
     const auto display = QueryCurrentDisplayState();
     currentMode = display.mode;
@@ -92,15 +102,26 @@ void Application::ShowMenu(bool visualPreview) {
                   height = MulDiv(modern_ui::kMenuHeight, static_cast<int>(dpi), 96);
         const int x = info.rcWork.left + (info.rcWork.right - info.rcWork.left - width) / 2,
                   y = info.rcWork.top + (info.rcWork.bottom - info.rcWork.top - height) / 2;
-        HWND hwnd = CreateWindowExW(WS_EX_TOPMOST | (previewMenu ? WS_EX_APPWINDOW : WS_EX_TOOLWINDOW),
+        const RECT body{x, y, x + width, y + height};
+        HWND shadow = popup_surface::CreateShadow(GetModuleHandleW(nullptr), body);
+        HWND hwnd = CreateWindowExW(WS_EX_LAYERED | WS_EX_TOPMOST | (previewMenu ? WS_EX_APPWINDOW : WS_EX_TOOLWINDOW),
                                     kMenuClass, Tr(L"投屏", L"Project"), WS_POPUP, x, y, width, height,
-                                    nullptr, nullptr, GetModuleHandleW(nullptr), this);
-        if (!hwnd)
+                                    shadow, nullptr, GetModuleHandleW(nullptr), this);
+        if (!hwnd) {
+            if (shadow) DestroyWindow(shadow);
             continue;
-        RoundWindow(hwnd);
+        }
+        popup_surface::UpdateShadow(hwnd);
         menus.push_back(hwnd);
         if (monitor == active || !menuWindow)
             menuWindow = hwnd;
+        // A per-pixel layered window has no visible surface until its first
+        // UpdateLayeredWindow; initialize it before showing either window.
+        if (HDC dc = GetDC(hwnd)) {
+            modern_ui::DrawMenu(hwnd, dc, chinese, selected, currentMode, hovered, menuPreviewSession);
+            ReleaseDC(hwnd, dc);
+        }
+        if (shadow) ShowWindow(shadow, SW_SHOWNOACTIVATE);
         ShowWindow(hwnd, SW_SHOWNOACTIVATE);
         UpdateWindow(hwnd);
         storage.Log(L"MENU hwnd=" + std::to_wstring(reinterpret_cast<UINT_PTR>(hwnd)) + L" dpi=" +
@@ -127,6 +148,20 @@ void Application::ChangeSelection(int delta) {
 
 LRESULT Application::MenuProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     switch (msg) {
+    case WM_NCCALCSIZE:
+        return 0;
+    case WM_NCHITTEST:
+        return HTCLIENT;
+    case WM_NCPAINT:
+        return 0;
+    case WM_NCACTIVATE:
+        return DefWindowProcW(hwnd, msg, wp, -1);
+    case WM_DWMCOMPOSITIONCHANGED:
+        RepaintMenus();
+        return 0;
+    case WM_WINDOWPOSCHANGED:
+        popup_surface::UpdateShadow(hwnd);
+        break;
     case WM_PAINT: {
         PAINTSTRUCT ps{};
         HDC dc = BeginPaint(hwnd, &ps);
