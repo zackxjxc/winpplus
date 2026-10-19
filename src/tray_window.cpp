@@ -5,6 +5,23 @@
 #include <algorithm>
 
 void Application::AddTrayIcon() {
+    if (!showTrayIcon) {
+        if (trayIconAdded) {
+            NOTIFYICONDATAW icon{sizeof(icon)};
+            icon.hWnd = trayWindow;
+            icon.uID = 1;
+            if (!Shell_NotifyIconW(NIM_DELETE, &icon)) {
+                SetStatus(Tr(L"无法隐藏托盘图标", L"Could not hide the tray icon"));
+                return;
+            }
+            trayIconAdded = false;
+        }
+        if (trayIcon) {
+            DestroyIcon(trayIcon);
+            trayIcon = nullptr;
+        }
+        return;
+    }
     DWORD lightTheme{}, size = sizeof(lightTheme);
     RegGetValueW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
                  L"SystemUsesLightTheme", RRF_RT_REG_DWORD, nullptr, &lightTheme, &size);

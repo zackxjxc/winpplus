@@ -7,6 +7,7 @@ struct AppSettings {
     bool chinese = true;
     bool custom = true;
     bool native = false;
+    bool showTrayIcon = true;
 };
 
 // Owns user data paths, configuration and embedded DLL extraction.

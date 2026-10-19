@@ -27,6 +27,7 @@ void Application::RefreshSettings() {
                    Tr(L"使用自定义居中菜单", L"Use the centered custom menu"));
     SetLabel(GetDlgItem(settingsWindow, 103), Tr(L"随 Windows 启动", L"Start with Windows"));
     SetLabel(GetDlgItem(settingsWindow, 104), Tr(L"简体中文", L"English"));
+    SetLabel(GetDlgItem(settingsWindow, 106), Tr(L"显示托盘图标", L"Show tray icon"));
     InvalidateRect(settingsWindow, nullptr, FALSE);
 }
 
@@ -61,7 +62,7 @@ const wchar_t* Application::StartupHint() const {
 }
 
 void Application::SetSettingsHover(int id) {
-    if (id == 103)
+    if (id == 103 || id == 106)
         id = -1;
     if (settingsHover == id)
         return;
@@ -100,6 +101,9 @@ void Application::ActivateSetting(int id) {
         } else if (result != ERROR_SUCCESS) {
             SetStatus(Tr(L"开机启动设置失败", L"Could not update startup setting"));
         }
+    } else if (id == 106) {
+        showTrayIcon = !showTrayIcon;
+        AddTrayIcon();
     } else if (id == 104) {
         HMENU menu = CreatePopupMenu();
         AppendMenuW(menu, MF_STRING | (chinese ? MF_CHECKED : 0), 1, L"简体中文");
@@ -174,7 +178,7 @@ LRESULT Application::SettingsProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         PAINTSTRUCT ps{};
         HDC dc = BeginPaint(hwnd, &ps);
         modern_ui::DrawSettings(hwnd, dc, chinese, optimizeMode, customMode, startupInfo.Enabled(), settingsHover,
-                                statusText, StartupHint());
+                                statusText, StartupHint(), showTrayIcon);
         EndPaint(hwnd, &ps);
         return 0;
     }

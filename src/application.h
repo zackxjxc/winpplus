@@ -36,7 +36,7 @@ class Application final {
     static constexpr UINT kTrayEvent = WM_APP + 11, kShowSettings = WM_APP + 10;
     static constexpr UINT kKeyAction = WM_APP + 20, kFocusCheck = WM_APP + 21;
     static constexpr ULONG_PTR kInputTag = 0x57505011;
-    static constexpr std::array<int, 5> kSettingsControls{100, 101, 102, 103, 104};
+    static constexpr std::array<int, 6> kSettingsControls{104, 100, 101, 102, 103, 106};
     static Application* keyboardOwner;
 
     static Application* WindowOwner(HWND hwnd, UINT msg, LPARAM lp);
@@ -90,6 +90,7 @@ class Application final {
     HANDLE instanceMutex{};
     WNDPROC buttonProc{};
     bool trayIconAdded{};
+    bool showTrayIcon = true;
     std::vector<HWND> menus;
     KeyboardRouter router;
     std::unique_ptr<NativeHookController> nativeHook;
