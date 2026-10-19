@@ -1,7 +1,10 @@
 #include "application.h"
+#include "platform_support.h"
 #include <shellapi.h>
 
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
+    if (!RequireWindows10())
+        return ERROR_OLD_WIN_VERSION;
     int count{};
     LPWSTR* arguments = CommandLineToArgvW(GetCommandLineW(), &count);
     if (!arguments)

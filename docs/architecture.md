@@ -12,7 +12,8 @@ Hook 目标先构建，CMake 再生成对应配置的 `hook_resource.rc`，将 D
 
 | 文件 | 职责 |
 | --- | --- |
-| `src/main.cpp` | 解析启动参数并运行应用 |
+| `src/main.cpp` | 检查系统版本、解析启动参数并运行应用 |
+| `src/platform_support.h` | 拒绝 Windows 10 之前的系统并显示提示 |
 | `src/app_identity.h` | 产品中英文名称、数据目录、窗口类名与单实例标识 |
 | `src/app_version.h` | 包装由 VERSION 生成的版本定义，供标题栏与 EXE 资源共用 |
 | `src/application.h/.cpp` | 应用生命周期、窗口回调桥接、单实例、键盘钩子与定时器 |
@@ -34,6 +35,8 @@ Hook 目标先构建，CMake 再生成对应配置的 `hook_resource.rc`，将 D
 第三方 MinHook 保留上游目录和许可，不作为应用代码进行格式化或裁剪。`.clang-format` 供新增或明确重构的自有代码使用，不要求一次性格式化整个仓库。
 
 ## 生命周期和副作用
+
+入口先通过带 Windows 10/11 兼容性清单的 `IsWindows10OrGreater` 检查系统版本，失败时显示“仅限 Windows 10 及以上系统使用。”（非中文系统显示英文）并以 `ERROR_OLD_WIN_VERSION` 退出；此时尚未构造 `Application`，不读取配置、不创建托盘、不安装钩子。现代 User32 和缩放 API 使用延迟导入；当前静态 CRT 的 `CreateFile2` 导入也通过其 API-set 合约延迟加载，避免正式 Release 在 Windows 7 上先因缺少入口点而无法到达版本提示。生成的导入库仅用于链接，不增加分发 DLL。拒绝分支已在本机通过隔离的兼容性清单测试副本验证，Windows 7/8 实机尚未验证。单显示器行为维持现状，活动桌面数量不等于连接的显示设备数量。
 
 `Application` 在主线程上拥有所有窗口与键盘钩子。窗口通过 `GWLP_USERDATA` 找到所属实例。低级键盘钩子没有用户数据参数，因此只保留一个静态实例桥接指针。退出时先禁用原生路由，关闭菜单，移除键盘钩子，再释放窗口、托盘图标、注入控制器和单实例句柄。自定义菜单的开始菜单掩码使用带内部标记的 Ctrl 按下/抬起，不向前台应用发送 F24 功能键。
 
