@@ -7,6 +7,10 @@
 - **原生菜单跟随活动屏幕：** 在当前活动窗口所在的屏幕显示系统投屏菜单。
 - **每屏同步的自定义菜单：** 在每个活动屏幕中央同时显示菜单，选择同步。
 
+## 本工具解决的核心问题
+
+双屏扩展模式下，主显示器被其他设备占用，想让 Windows 只在副屏显示，却看不到主屏上的 `Win + P` 菜单？WinPPlus 在每个屏幕都展示投屏菜单，也可强制系统菜单在当前屏幕显示，让切屏不再靠盲按。
+
 [<img src="docs/images/settings-zh.png" alt="投屏菜单增强设置" width="493">](docs/images/settings-zh.png)
 
 [<img src="docs/images/menu-zh.png" alt="自定义投屏菜单" width="640">](docs/images/menu-zh.png)
