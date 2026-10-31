@@ -17,6 +17,7 @@ void Application::CloseMenu() {
     router.MenuClosed();
     hoverEnabled = false;
     hovered = -1;
+    hoveredMenu = nullptr;
     menuPreviewSession = false;
     for (HWND hwnd : windows) {
         if (IsWindow(hwnd)) {
@@ -79,6 +80,7 @@ void Application::ShowMenu(bool visualPreview) {
     currentMode = display.mode;
     selected = currentMode < 0 ? 0 : currentMode;
     hovered = -1;
+    hoveredMenu = nullptr;
     hoverEnabled = false;
     GetCursorPos(&initialCursor);
     HMONITOR active = triggerMonitor ? triggerMonitor : ActiveMonitor(false);
@@ -131,6 +133,7 @@ void Application::ShowMenu(bool visualPreview) {
 void Application::ChangeSelection(int delta) {
     selected = (selected + delta + 4) % 4;
     hovered = -1;
+    hoveredMenu = nullptr;
     hoverEnabled = false;
     GetCursorPos(&initialCursor);
     RepaintMenus();
@@ -152,7 +155,8 @@ LRESULT Application::MenuProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     case WM_PAINT: {
         PAINTSTRUCT ps{};
         HDC dc = BeginPaint(hwnd, &ps);
-        modern_ui::DrawMenu(hwnd, dc, chinese, selected, currentMode, hovered, menuPreviewSession);
+        const int menuHover = hoveredMenu == hwnd ? hovered : -1;
+        modern_ui::DrawMenu(hwnd, dc, chinese, selected, currentMode, menuHover, menuPreviewSession);
         EndPaint(hwnd, &ps);
         return 0;
     }
@@ -168,7 +172,8 @@ LRESULT Application::MenuProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         const int index = modern_ui::MenuHitTest(hwnd, point);
         const int nextHover = modern_ui::MenuCloseHitTest(hwnd, point) ? 4
             : modern_ui::MenuSettingsHitTest(hwnd, point) ? 5 : index;
-        const bool changed = nextHover != hovered;
+        const bool changed = hoveredMenu != hwnd || nextHover != hovered;
+        hoveredMenu = hwnd;
         hovered = nextHover;
         if (changed)
             RepaintMenus();
@@ -177,6 +182,9 @@ LRESULT Application::MenuProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         return 0;
     }
     case WM_MOUSELEAVE:
+        if (hoveredMenu != hwnd)
+            return 0;
+        hoveredMenu = nullptr;
         hovered = -1;
         RepaintMenus();
         return 0;

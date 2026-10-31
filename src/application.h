@@ -98,6 +98,7 @@ class Application final {
     bool dryRun{}, selfTest{}, previewMenu{}, menuPreviewSession{};
     bool closingMenu{}, openingMenu{}, hoverEnabled{};
     int selected = -1, currentMode = -1, hovered = -1, settingsHover = -1;
+    HWND hoveredMenu{};
     POINT initialCursor{};
     HMONITOR triggerMonitor{};
     HMONITOR nativeTriggerMonitor{};

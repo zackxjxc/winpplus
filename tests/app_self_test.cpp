@@ -172,6 +172,20 @@ int Application::RunSelfTests() {
         SendMessageW(menuWindow, WM_MOUSELEAVE, 0, 0);
         check(hovered == -1 && selected == before && currentMode == actual,
               "mouse leave clears only the hover highlight");
+        if (menus.size() > 1) {
+            const HWND firstMenu = menus.front();
+            const HWND secondMenu = menus[1];
+            RECT secondClient{};
+            GetClientRect(secondMenu, &secondClient);
+            hoverEnabled = true;
+            SendMessageW(secondMenu, WM_MOUSEMOVE, 0,
+                         MAKELPARAM((secondClient.right * 5) / 8, modern_ui::Scale(secondMenu, 80)));
+            const int secondHover = hovered;
+            SendMessageW(firstMenu, WM_MOUSELEAVE, 0, 0);
+            check(hoveredMenu == secondMenu && hovered == secondHover,
+                  "mouse hover remains local to the menu under the pointer");
+            SendMessageW(secondMenu, WM_MOUSELEAVE, 0, 0);
+        }
     }
     key(VK_LWIN, true);
     key('P', true);
