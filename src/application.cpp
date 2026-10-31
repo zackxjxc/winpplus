@@ -177,6 +177,8 @@ LRESULT Application::KeyboardProc(int code, WPARAM wp, LPARAM lp) {
     const bool down = wp == WM_KEYDOWN || wp == WM_SYSKEYDOWN, up = wp == WM_KEYUP || wp == WM_SYSKEYUP;
     if (!down && !up)
         return CallNextHookEx(keyboardHook, code, wp, lp);
+    if (!selfTest && down && key->vkCode == 'P')
+        router.ReconcileWinState();
     const auto decision = router.Feed(key->vkCode, down);
     if (optimizeMode && nativeHook && down &&
         ((router.WinHeld() && key->vkCode != 'P' && key->vkCode != VK_LWIN && key->vkCode != VK_RWIN) ||

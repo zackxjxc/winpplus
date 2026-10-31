@@ -12,9 +12,10 @@ constexpr COLORREF kWhite = RGB(255, 255, 255);
 constexpr COLORREF kInk = RGB(35, 39, 45);
 constexpr COLORREF kMuted = RGB(109, 116, 125);
 constexpr COLORREF kAccent = RGB(53, 102, 207);
-constexpr COLORREF kAccentLight = RGB(240, 244, 252);
+constexpr COLORREF kAccentLight = RGB(236, 243, 251);
+constexpr COLORREF kSelectedBorder = RGB(150, 190, 235);
 constexpr COLORREF kBorder = RGB(232, 234, 238);
-constexpr COLORREF kHover = RGB(245, 246, 248);
+constexpr COLORREF kHover = RGB(224, 228, 236);
 
 struct Canvas {
     HWND window;
@@ -310,8 +311,12 @@ void DrawMenu(HWND hwnd, HDC dc, bool chinese, int selected, int current, int ho
         const RECT card = MenuRow(c, i);
         const int left = MulDiv(card.left, 96, static_cast<int>(c.dpi));
         const int width = MulDiv(card.right - card.left, 96, static_cast<int>(c.dpi));
-        const COLORREF fill = chosen ? kAccentLight : (i == hovered ? kHover : kWhite);
-        if (chosen || i == hovered) Rounded(c, card, 5, fill, fill);
+        const bool over = i == hovered;
+        const COLORREF fill = over ? kHover : (chosen ? kAccentLight : kWhite);
+        if (chosen)
+            Rounded(c, card, 5, fill, kSelectedBorder);
+        else if (over)
+            Rounded(c, card, 5, fill, fill);
         const int top = MulDiv(card.top, 96, static_cast<int>(c.dpi));
         const int height = MulDiv(card.bottom - card.top, 96, static_cast<int>(c.dpi));
         const int contentTop = top + (height - 72) / 2;

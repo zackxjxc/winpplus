@@ -24,6 +24,16 @@ public:
             ((GetAsyncKeyState(VK_RSHIFT) & 0x8000) ? 4u : 0u);
         pDown_ = (GetAsyncKeyState('P') & 0x8000) != 0; capturedP_ = false;
     }
+    // Reconcile a stale Win state before deciding whether a later P belongs to
+    // a chord. Synthetic/unit-test Feed sequences remain deterministic.
+    void ReconcileWinState() {
+        if ((GetAsyncKeyState(VK_LWIN) & 0x8000) == 0 &&
+            (GetAsyncKeyState(VK_RWIN) & 0x8000) == 0 && (leftWin_ || rightWin_)) {
+            leftWin_ = false;
+            rightWin_ = false;
+            nativeGesture_ = false;
+        }
+    }
     bool WinHeld() const { return leftWin_ || rightWin_; }
     void CancelNativeGesture() { nativeGesture_ = false; }
     void MenuClosed() { session_ = false; cycled_ = false; }
