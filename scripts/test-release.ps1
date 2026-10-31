@@ -7,6 +7,8 @@ function Assert-Release([bool]$Condition, [string]$Name) {
     $script:count++
 }
 $current = & (Join-Path $scriptDirectory 'get-version.ps1')
+$notes = & (Join-Path $scriptDirectory 'get-release-notes.ps1') -Version $current
+Assert-Release ($notes -match 'Win\+P|Win key|菜单') 'current version has release notes'
 $initial = & (Join-Path $scriptDirectory 'release-plan.ps1')
 Assert-Release ($initial.Publish -and $initial.Tag -eq "v$current") 'first version creates a release'
 $unchanged = & (Join-Path $scriptDirectory 'release-plan.ps1') -PreviousVersion $current

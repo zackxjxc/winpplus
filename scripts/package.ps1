@@ -41,6 +41,9 @@ try {
         if (-not $zip.GetEntry('WinPPlus/WinPPlus.exe')) {
             throw 'Portable ZIP is missing WinPPlus/WinPPlus.exe.'
         }
+        if (-not $zip.GetEntry('WinPPlus/CHANGELOG.md')) {
+            throw 'Portable ZIP is missing WinPPlus/CHANGELOG.md.'
+        }
     } finally {
         $zip.Dispose()
     }
